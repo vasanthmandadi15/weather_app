@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Live Weather</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body style="background-image: url('/static/backgrounds/{{ weather.bg_image }}'); background-size: cover;" data-lat="{{ weather.lat }}" data-lon="{{ weather.lon }}">
+  <form method="POST" class="search-form">
+    <input name="city" placeholder="Search City" value="{{ weather.city }}" required>
+    <select name="units">
+      <option value="metric" {% if selected_unit == 'metric' %}selected{% endif %}>°C</option>
+      <option value="imperial" {% if selected_unit == 'imperial' %}selected{% endif %}>°F</option>
+    </select>
+    <button type="submit">Search</button>
+  </form>
+
+  <!-- Horizontal Forecast Tab -->
+  <div class="horizontal-tab">
+    {% for day in daily %}
+      <div class="tab-item">
+        <p>{{ day.day }}</p>
+        <img src="https://openweathermap.org/img/wn/{{ day.icon }}.png" alt="icon">
+        <p>{{ day.temp_max }}° / {{ day.temp_min }}°</p>
+      </div>
+    {% endfor %}
+  </div>
+
+  <!-- Dashboard Buttons -->
+  <div class="dashboard-buttons">
+    <button onclick="openModal('tempModal')">🌡 Temperature</button>
+    <button onclick="openModal('uvModal')">🔆 UV Index</button>
+    <button onclick="openModal('aqiModal')">🌫 AQI</button>
+    <button onclick="openModal('sunModal')">🌅 Sunrise/Sunset</button>
+    <button onclick="openModal('favModal')">⭐ Favorites</button>
+  </div>
+
+  <!-- 🌡 Temperature Modal -->
+  <div class="modal" id="tempModal">
+    <div class="modal-content">
+      <span class="close" onclick="closeModal('tempModal')">&times;</span>
+      <h3>Today’s Temperature</h3>
+      <canvas id="hourlyTempChart"></canvas>
+    </div>
+  </div>
+
+  <!-- 🔆 UV Modal -->
+  <div class="modal" id="uvModal">
+    <div class="modal-content">
+      <span class="close" onclick="closeModal('uvModal')">&times;</span>
+      <h3>UV Index</h3>
+      <canvas id="uvIndexChart"></canvas>
+    </div>
+  </div>
+
+  <!-- 🌫 AQI Modal -->
+  <div class="modal" id="aqiModal">
+    <div class="modal-content">
+      <span class="close" onclick="closeModal('aqiModal')">&times;</span>
+      <h3>Air Quality Index</h3>
+      <canvas id="aqiChart"></canvas>
+    </div>
+  </div>
+
+  <!-- 🌅 Sunrise/Sunset Modal -->
+  <div class="modal" id="sunModal">
+    <div class="modal-content">
+      <span class="close" onclick="closeModal('sunModal')">&times;</span>
+      <h3>Sunrise & Sunset</h3>
+      <p>🌅 Sunrise: {{ weather.sunrise }}</p>
+      <p>🌇 Sunset: {{ weather.sunset }}</p>
+      <progress max="100" value="50"></progress>
+    </div>
+  </div>
+
+  <!-- ⭐ Favorites Modal -->
+  <div class="modal" id="favModal">
+    <div class="modal-content">
+      <span class="close" onclick="closeModal('favModal')">&times;</span>
+      <h3>Favorite Cities</h3>
+      <ul id="favorites-list"></ul>
+      <button id="add-favorite">⭐ Add Current</button>
+    </div>
+  </div>
+
+  <!-- JavaScript -->
+  <script>
+    function openModal(id) {
+      document.getElementById(id).style.display = "block";
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).style.display = "none";
+    }
+
+    const hourlyData = {{ hourly | tojson }};
+    const tempCtx = document.getElementById('hourlyTempChart').getContext('2d');
+    new Chart(tempCtx, {
+      type: 'line',
+      data: {
+        labels: hourlyData.map(h => h.time),
+        datasets: [
+          {
+            label: 'Temp',
+            data: hourlyData.map(h => h.temp),
+            borderColor: 'orange',
+            tension: 0.4,
+            fill: true
+          },
+          {
+            label: 'Feels Like',
+            data: hourlyData.map(h => h.feels_like),
+            borderColor: 'lightblue',
+            borderDash: [4, 4],
+            tension: 0.4
+          }
+        ]
+      }
+    });
+
+    const uv = {{ weather.uv_index }};
+    const uvCtx = document.getElementById('uvIndexChart').getContext('2d');
+    new Chart(uvCtx, {
+      type: 'doughnut',
+      data: {
+        labels: ['UV Index'],
+        datasets: [{
+          data: [uv, 11 - uv],
+          backgroundColor: ['#ffcc00', '#2c2c2c'],
+          borderWidth: 0
+        }]
+      },
+      options: {
+        cutout: '70%',
+        plugins: {
+          tooltip: { enabled: false },
+          legend: { display: false },
+          title: {
+            display: true,
+            text: `UV ${uv}`,
+            color: "#fff",
+            font: { size: 18 }
+          }
+        }
+      }
+    });
+
+    const aqiCtx = document.getElementById('aqiChart').getContext('2d');
+    new Chart(aqiCtx, {
+      type: 'bar',
+      data: {
+        labels: ['PM2.5', 'PM10', 'O3'],
+        datasets: [{
+          label: 'AQI Components',
+          data: [{{ aqi.pm2_5 }}, {{ aqi.pm10 }}, {{ aqi.o3 }}],
+          backgroundColor: ['#f44336', '#ff9800', '#4caf50']
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          x: { ticks: { color: "#ccc" }},
+          y: { beginAtZero: true, ticks: { color: "#ccc" }}
+        },
+        plugins: {
+          legend: { display: false },
+          title: {
+            display: true,
+            text: 'AQI Particulates',
+            color: '#fff'
+          }
+        }
+      }
+    });
+
+    document.getElementById('add-favorite').onclick = () => {
+      const city = document.querySelector("input[name='city']").value;
+      let favorites = JSON.parse(localStorage.getItem("favorites")) || [];
+      if (!favorites.includes(city)) {
+        favorites.push(city);
+        localStorage.setItem("favorites", JSON.stringify(favorites));
+        renderFavorites();
+      }
+    };
+
+    function renderFavorites() {
+      const list = document.getElementById("favorites-list");
+      list.innerHTML = "";
+      let favorites = JSON.parse(localStorage.getItem("favorites")) || [];
+      favorites.forEach(city => {
+        const li = document.createElement("li");
+        li.textContent = city;
+        li.onclick = () => {
+          document.querySelector("input[name='city']").value = city;
+          document.querySelector("form").submit();
+        };
+        list.appendChild(li);
+      });
+    }
+
+    renderFavorites();
+  </script>
+</body>
+</html>
